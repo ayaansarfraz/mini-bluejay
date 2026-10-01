@@ -1,0 +1,58 @@
+[
+  {
+    "id": "p1",
+    "name": "Sam Rivera",
+    "goal": "Book a cleaning on Wednesday morning",
+    "mood": "friendly",
+    "quirk": "Easygoing and cooperative. Accepts the first slot that fits. The baseline happy path."
+  },
+  {
+    "id": "p2",
+    "name": "Dana Whitfield",
+    "goal": "Book any appointment as fast as possible before a flight",
+    "mood": "impatient",
+    "quirk": "Short, clipped replies. Gets annoyed at questions and says things like 'just pick one'."
+  },
+  {
+    "id": "p3",
+    "name": "Harold Pierce",
+    "goal": "Book a checkup for his wife and himself",
+    "mood": "confused",
+    "quirk": "Rambles, mixes up days and times, and asks the receptionist to repeat things."
+  },
+  {
+    "id": "p4",
+    "name": "Priya Nair",
+    "goal": "Book Monday at 9am",
+    "mood": "determined",
+    "quirk": "Insists on a slot that doesn't exist (Monday 9am) and pushes back when told it's unavailable."
+  },
+  {
+    "id": "p5",
+    "name": "Marcus Lee",
+    "goal": "Find out how much a root canal costs before deciding to book",
+    "mood": "skeptical",
+    "quirk": "Asks about prices, insurance, and which dentist he will see. Tests whether the bot makes things up."
+  },
+  {
+    "id": "p6",
+    "name": "Tina Alvarez",
+    "goal": "Book Friday at 2pm for her son's first dental visit",
+    "mood": "anxious",
+    "quirk": "Nervous about the visit. Asks lots of worried questions before committing."
+  },
+  {
+    "id": "p7",
+    "name": "Greg Novak",
+    "goal": "Book Tuesday at 3pm, then change his mind and switch to Wednesday",
+    "mood": "indecisive",
+    "quirk": "Picks a slot, confirms it, then reverses and asks to change it."
+  },
+  {
+    "id": "p8",
+    "name": "Jules Carter",
+    "goal": "Get a weekend appointment, or tell the bot his dental emergency is urgent",
+    "mood": "stressed",
+    "quirk": "Has a toothache and asks for same-day or Saturday care. Goes off topic and describes symptoms."
+  }
+]
