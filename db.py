@@ -61,6 +61,20 @@ CREATE TABLE IF NOT EXISTS evaluations (
     created_at TEXT NOT NULL
 );
 
+-- One verdict per call on how well the CALLER (persona model) played its part.
+CREATE TABLE IF NOT EXISTS persona_evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_id INTEGER NOT NULL UNIQUE REFERENCES calls(id),
+    in_character INTEGER NOT NULL,
+    followed_quirk INTEGER NOT NULL,
+    pursued_goal INTEGER NOT NULL,
+    role_confusion INTEGER NOT NULL,
+    realism INTEGER NOT NULL,          -- 1-5
+    reason TEXT NOT NULL,
+    judge_model TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_calls_run ON calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id, idx);
 """

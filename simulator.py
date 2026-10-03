@@ -3,7 +3,7 @@ import json
 import os
 import sys
 import time
-    
+
 import httpx
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
@@ -19,6 +19,22 @@ END_TAG = "[END]"
 
 llm = AsyncAnthropic(max_retries=0)  # our own retry() handles failures
 
+# Which model plays the caller: "anthropic" (MODEL) or "vllm" (self-hosted Qwen3-8B).
+# The receptionist and the judge stay on Haiku either way.
+PERSONA_BACKEND = "anthropic"
+VLLM_URL = ""
+VLLM_MODEL = "Qwen/Qwen3-8B"
+_vllm_http: httpx.AsyncClient | None = None
+
+
+def configure_persona(backend: str, vllm_url: str = "") -> None:
+    global PERSONA_BACKEND, VLLM_URL
+    PERSONA_BACKEND, VLLM_URL = backend, vllm_url.rstrip("/")
+
+
+def persona_model() -> str:
+    return VLLM_MODEL if PERSONA_BACKEND == "vllm" else MODEL
+
 
 def persona_prompt(p: dict) -> str:
     return f"""You are role-playing a customer phoning Maple Dental. You are the CALLER, not the receptionist.
@@ -31,8 +47,19 @@ Quirk: {p["quirk"]}
 Rules:
 - Stay in character. Speak like a real person on the phone: one or two short sentences, no stage directions.
 - Pursue your goal. React naturally to what the receptionist says.
-- When the call is over (you booked, you gave up, or you hung up), end your final line with the exact tag {END_TAG}.
+- {END_TAG} means you hang up. Only add it to the very last thing you say, once the call is over (you booked, you gave up, or you hung up). Never add it while you are still talking to the receptionist, and never on your first line.
 """
+
+
+def caller_view(transcript: list[dict]) -> list[dict]:
+    """The transcript as the persona LLM sees it: roles swapped (see caller_turn)."""
+    if not transcript:
+        # The API needs a first "user" message to start the conversation.
+        return [{"role": "user", "content": "(The phone rings. The receptionist picks up.)"}]
+    return [
+        {"role": "assistant" if m["role"] == "user" else "user", "content": m["content"]}
+        for m in transcript
+    ]
 
 
 async def caller_turn(persona: dict, transcript: list[dict]) -> str:
@@ -42,22 +69,33 @@ async def caller_turn(persona: dict, transcript: list[dict]) -> str:
     The persona LLM sees the opposite: its own lines are "assistant", the receptionist's
     lines are "user".
     """
-    if transcript:
-        flipped = [
-            {"role": "assistant" if m["role"] == "user" else "user", "content": m["content"]}
-            for m in transcript
-        ]
-    else:
-        # The API needs a first "user" message to start the conversation.
-        flipped = [{"role": "user", "content": "(The phone rings. The receptionist picks up.)"}]
-
+    if PERSONA_BACKEND == "vllm":
+        return await vllm_caller_turn(persona, transcript)
     resp = await llm.messages.create(
         model=MODEL,
         max_tokens=150,
         system=persona_prompt(persona),
-        messages=flipped,
+        messages=caller_view(transcript),
     )
     return resp.content[0].text.strip()
+
+
+async def vllm_caller_turn(persona: dict, transcript: list[dict]) -> str:
+    global _vllm_http
+    if _vllm_http is None:
+        _vllm_http = httpx.AsyncClient(timeout=httpx.Timeout(120, connect=30))
+    r = await _vllm_http.post(
+        f"{VLLM_URL}/v1/chat/completions",
+        json={
+            "model": "llm",
+            "messages": [{"role": "system", "content": persona_prompt(persona)}]
+            + caller_view(transcript),
+            "max_tokens": 150,
+            "chat_template_kwargs": {"enable_thinking": False},  # Qwen3: answer directly
+        },
+    )
+    r.raise_for_status()
+    return (r.json()["choices"][0]["message"]["content"] or "").strip()
 
 
 async def receptionist_turn(http: httpx.AsyncClient, transcript: list[dict]) -> str:

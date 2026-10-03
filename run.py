@@ -4,13 +4,23 @@ import json
 import time
 from collections import Counter
 
+import httpx
+
 from db import create_run, finish_run, init_db, upsert_personas
 from evaluator import evaluate_run, print_report
 from orchestrator import run_batch
-from simulator import MODEL
+from simulator import configure_persona, persona_model
 
 
 async def main_async(args: argparse.Namespace) -> None:
+    if args.persona_backend == "vllm":
+        if not args.vllm_url:
+            raise SystemExit("--persona-backend vllm needs --vllm-url")
+        configure_persona("vllm", args.vllm_url)
+        from benchmark import wait_for_vllm  # boot the GPU before the batch starts
+
+        async with httpx.AsyncClient() as http:
+            await wait_for_vllm(http, args.vllm_url.rstrip("/"))
     with open("personas.json") as f:
         personas = json.load(f)
 
@@ -22,8 +32,11 @@ async def main_async(args: argparse.Namespace) -> None:
             personas = [p for p in personas if p["id"] in wanted]
             if not personas:
                 raise SystemExit(f"no personas match {args.personas}")
-        run_id = await create_run(db, args.calls, args.concurrency, args.rps, MODEL)
-        print(f"run {run_id}: {args.calls} calls, concurrency={args.concurrency}, rps={args.rps}")
+        run_id = await create_run(db, args.calls, args.concurrency, args.rps, persona_model())
+        print(
+            f"run {run_id}: {args.calls} calls, persona model={persona_model()}, "
+            f"concurrency={args.concurrency}, rps={args.rps}"
+        )
 
         start = time.monotonic()
         results = await run_batch(personas, args.calls, db, run_id, args.concurrency, args.rps)
@@ -52,6 +65,9 @@ def main() -> None:
     ap.add_argument("--calls", type=int, default=100)
     ap.add_argument("--concurrency", type=int, default=10, help="max calls in flight")
     ap.add_argument("--rps", type=float, default=5.0, help="max LLM requests per second")
+    ap.add_argument("--persona-backend", choices=["anthropic", "vllm"], default="anthropic",
+                    help="which model plays the caller")
+    ap.add_argument("--vllm-url", help="vLLM server URL when --persona-backend vllm")
     ap.add_argument("--no-eval", action="store_true", help="skip judging; run evaluator.py later")
     ap.add_argument("--personas", help="comma-separated persona ids to use, e.g. p9,p10 (default: all)")
     asyncio.run(main_async(ap.parse_args()))
