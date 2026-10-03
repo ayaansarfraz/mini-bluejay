@@ -182,3 +182,22 @@ async def report_rows(db: aiosqlite.Connection, run_id: int) -> list[dict]:
         cols = ["call_id", "persona_id", "name", "mood", "booking_succeeded", "booked_slot",
                 "slot_real", "fabricated_info", "reason"]
         return [dict(zip(cols, r)) for r in await cur.fetchall()]
+
+
+async def run_call_stats(db: aiosqlite.Connection, run_id: int) -> dict:
+    """Counts for the whole run, including calls the judge never saw."""
+    async with db.execute(
+        "SELECT COUNT(*),"
+        " SUM(c.status = 'error'),"
+        " SUM(c.status = 'ok' AND c.ended_by_caller = 0),"
+        " SUM(c.status = 'ok' AND e.id IS NULL)"
+        " FROM calls c LEFT JOIN evaluations e ON e.call_id = c.id WHERE c.run_id = ?",
+        (run_id,),
+    ) as cur:
+        total, errors, hit_max_turns, unjudged = await cur.fetchone()
+    return {
+        "total": total or 0,
+        "errors": errors or 0,
+        "hit_max_turns": hit_max_turns or 0,
+        "unjudged": unjudged or 0,
+    }

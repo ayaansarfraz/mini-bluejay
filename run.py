@@ -16,6 +16,11 @@ async def main_async(args: argparse.Namespace) -> None:
     db = await init_db()
     try:
         await upsert_personas(db, personas)
+        if args.personas:
+            wanted = args.personas.split(",")
+            personas = [p for p in personas if p["id"] in wanted]
+            if not personas:
+                raise SystemExit(f"no personas match {args.personas}")
         run_id = await create_run(db, args.calls, args.concurrency, args.rps, MODEL)
         print(f"run {run_id}: {args.calls} calls, concurrency={args.concurrency}, rps={args.rps}")
 
@@ -41,6 +46,7 @@ def main() -> None:
     ap.add_argument("--calls", type=int, default=100)
     ap.add_argument("--concurrency", type=int, default=10, help="max calls in flight")
     ap.add_argument("--rps", type=float, default=5.0, help="max LLM requests per second")
+    ap.add_argument("--personas", help="comma-separated persona ids to use, e.g. p9,p10 (default: all)")
     asyncio.run(main_async(ap.parse_args()))
 
 
