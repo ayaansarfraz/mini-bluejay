@@ -48,6 +48,19 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 
+-- One judge verdict per call.
+CREATE TABLE IF NOT EXISTS evaluations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    call_id INTEGER NOT NULL UNIQUE REFERENCES calls(id),
+    booking_succeeded INTEGER NOT NULL,
+    booked_slot TEXT,
+    slot_real INTEGER,                 -- NULL when nothing was booked
+    fabricated_info INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    judge_model TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_calls_run ON calls(run_id);
 CREATE INDEX IF NOT EXISTS idx_messages_call ON messages(call_id, idx);
 """
@@ -115,3 +128,57 @@ async def save_call(db: aiosqlite.Connection, run_id: int, result: dict) -> None
         ],
     )
     await db.commit()
+
+
+async def latest_run_id(db: aiosqlite.Connection) -> int | None:
+    async with db.execute("SELECT MAX(id) FROM runs") as cur:
+        row = await cur.fetchone()
+    return row[0]
+
+
+async def calls_to_evaluate(db: aiosqlite.Connection, run_id: int) -> list[dict]:
+    """Calls in a run that finished ok and have no evaluation yet, with their messages."""
+    async with db.execute(
+        "SELECT c.id, c.persona_id FROM calls c LEFT JOIN evaluations e ON e.call_id = c.id"
+        " WHERE c.run_id = ? AND c.status = 'ok' AND e.id IS NULL ORDER BY c.id",
+        (run_id,),
+    ) as cur:
+        calls = [{"call_id": r[0], "persona_id": r[1]} for r in await cur.fetchall()]
+    for call in calls:
+        async with db.execute(
+            "SELECT role, content FROM messages WHERE call_id = ? ORDER BY idx", (call["call_id"],)
+        ) as cur:
+            call["messages"] = [{"role": r[0], "content": r[1]} for r in await cur.fetchall()]
+    return calls
+
+
+async def save_evaluation(db: aiosqlite.Connection, call_id: int, ev: dict, model: str) -> None:
+    await db.execute(
+        "INSERT OR REPLACE INTO evaluations (call_id, booking_succeeded, booked_slot, slot_real,"
+        " fabricated_info, reason, judge_model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            call_id,
+            int(ev["booking_succeeded"]),
+            ev.get("booked_slot"),
+            None if ev["slot_real"] is None else int(ev["slot_real"]),
+            int(ev["fabricated_info"]),
+            ev["reason"],
+            model,
+            iso(time.time()),
+        ),
+    )
+    await db.commit()
+
+
+async def report_rows(db: aiosqlite.Connection, run_id: int) -> list[dict]:
+    """Every evaluation in a run, joined with its call and persona."""
+    async with db.execute(
+        "SELECT c.id, c.persona_id, p.name, p.mood, e.booking_succeeded, e.booked_slot,"
+        " e.slot_real, e.fabricated_info, e.reason"
+        " FROM evaluations e JOIN calls c ON c.id = e.call_id"
+        " JOIN personas p ON p.id = c.persona_id WHERE c.run_id = ? ORDER BY c.id",
+        (run_id,),
+    ) as cur:
+        cols = ["call_id", "persona_id", "name", "mood", "booking_succeeded", "booked_slot",
+                "slot_real", "fabricated_info", "reason"]
+        return [dict(zip(cols, r)) for r in await cur.fetchall()]
