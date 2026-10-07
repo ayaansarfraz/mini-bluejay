@@ -16,7 +16,8 @@ async def main_async(args: argparse.Namespace) -> None:
     if args.persona_backend == "vllm":
         if not args.vllm_url:
             raise SystemExit("--persona-backend vllm needs --vllm-url")
-        configure_persona("vllm", args.vllm_url)
+        configure_persona("vllm", args.vllm_url, args.vllm_model, args.presence_penalty,
+                          args.qwen_sampling)
         from benchmark import wait_for_vllm  # boot the GPU before the batch starts
 
         async with httpx.AsyncClient() as http:
@@ -68,6 +69,11 @@ def main() -> None:
     ap.add_argument("--persona-backend", choices=["anthropic", "vllm"], default="anthropic",
                     help="which model plays the caller")
     ap.add_argument("--vllm-url", help="vLLM server URL when --persona-backend vllm")
+    ap.add_argument("--vllm-model", help="label stored with the run, e.g. Qwen/Qwen3-8B-AWQ")
+    ap.add_argument("--presence-penalty", type=float,
+                    help="vLLM caller only: penalize repeated tokens (Qwen suggests 1.5 when quantized)")
+    ap.add_argument("--qwen-sampling", action="store_true",
+                    help="vLLM caller only: Qwen's recommended non-thinking sampling settings")
     ap.add_argument("--no-eval", action="store_true", help="skip judging; run evaluator.py later")
     ap.add_argument("--personas", help="comma-separated persona ids to use, e.g. p9,p10 (default: all)")
     asyncio.run(main_async(ap.parse_args()))

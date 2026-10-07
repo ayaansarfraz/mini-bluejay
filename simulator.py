@@ -25,11 +25,31 @@ PERSONA_BACKEND = "anthropic"
 VLLM_URL = ""
 VLLM_MODEL = "Qwen/Qwen3-8B"
 _vllm_http: httpx.AsyncClient | None = None
+VLLM_SAMPLING: dict = {}  # extra sampling params for the vLLM caller (see configure_persona)
+
+# Qwen's recommended settings for non-thinking mode (Qwen3 model card).
+QWEN_NON_THINKING_SAMPLING = {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0}
 
 
-def configure_persona(backend: str, vllm_url: str = "") -> None:
-    global PERSONA_BACKEND, VLLM_URL
+def configure_persona(
+    backend: str,
+    vllm_url: str = "",
+    vllm_model: str = "",
+    presence_penalty: float | None = None,
+    qwen_sampling: bool = False,
+) -> None:
+    """presence_penalty discourages repeating tokens already used (Qwen suggests 1.5 for
+    quantized models); qwen_sampling applies Qwen's recommended non-thinking settings
+    instead of vLLM's defaults (which are Qwen's thinking-mode settings)."""
+    global PERSONA_BACKEND, VLLM_URL, VLLM_MODEL
     PERSONA_BACKEND, VLLM_URL = backend, vllm_url.rstrip("/")
+    if vllm_model:
+        VLLM_MODEL = vllm_model  # label only; the server decides what it actually runs
+    VLLM_SAMPLING.clear()
+    if qwen_sampling:
+        VLLM_SAMPLING.update(QWEN_NON_THINKING_SAMPLING)
+    if presence_penalty is not None:
+        VLLM_SAMPLING["presence_penalty"] = presence_penalty
 
 
 def persona_model() -> str:
@@ -92,6 +112,7 @@ async def vllm_caller_turn(persona: dict, transcript: list[dict]) -> str:
             + caller_view(transcript),
             "max_tokens": 150,
             "chat_template_kwargs": {"enable_thinking": False},  # Qwen3: answer directly
+            **VLLM_SAMPLING,
         },
     )
     r.raise_for_status()
