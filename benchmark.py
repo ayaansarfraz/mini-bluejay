@@ -287,7 +287,8 @@ async def main_async(args: argparse.Namespace) -> None:
     levels = [int(c) for c in args.levels.split(",")]
     probe = None
 
-    label = "haiku" if args.backend == "anthropic" else f"qwen3-8b-{args.gpu.lower()}"
+    variant = "" if args.variant == "bf16" else f"{args.variant}-"
+    label = "haiku" if args.backend == "anthropic" else f"qwen3-8b-{variant}{args.gpu.lower()}"
     if args.backend == "anthropic":
         client = AsyncAnthropic(max_retries=0)
 
@@ -338,7 +339,9 @@ async def main_async(args: argparse.Namespace) -> None:
         "backend": args.backend,
         "label": label,
         "gpu": None if args.backend == "anthropic" else args.gpu,
-        "model": MODEL if args.backend == "anthropic" else f"Qwen/Qwen3-8B (vLLM, 1x {args.gpu})",
+        "variant": None if args.backend == "anthropic" else args.variant,
+        "model": MODEL if args.backend == "anthropic"
+        else f"Qwen/Qwen3-8B {args.variant} (vLLM, 1x {args.gpu})",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "max_tokens": MAX_TOKENS,
         "levels": rows,
@@ -363,6 +366,8 @@ def main() -> None:
     ap.add_argument("--min-requests", type=int, default=20)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--repeats", type=int, default=1, help="run the whole sweep this many times")
+    ap.add_argument("--variant", default="bf16",
+                    help="weights served by vLLM, e.g. bf16, fp8, awq, awq-kvfp8 (for labels)")
     ap.add_argument("--gpu", choices=sorted(GPU_PER_HOUR), default="A10G",
                     help="GPU the vLLM server runs on (for cost and labels)")
     asyncio.run(main_async(ap.parse_args()))

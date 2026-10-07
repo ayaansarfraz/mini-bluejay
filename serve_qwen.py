@@ -38,6 +38,15 @@ import modal
 # The value is baked into the image so the container sees the same setting.
 GPU = os.environ.get("GPU", "A10G")
 
+# Which weights to serve, also picked at deploy time: VARIANT=awq KV_DTYPE=fp8 modal deploy ...
+#   bf16: full 16-bit weights (~16GB)
+#   fp8:  8-bit weights (~8GB); fast on GPUs with FP8 hardware (L40S, H100), not A10G
+#   awq:  4-bit weights (~5GB); runs on any recent NVIDIA GPU
+# KV_DTYPE=fp8 also stores the KV cache (each conversation's working memory) in 8 bits,
+# so about twice as many conversations fit.
+VARIANT = os.environ.get("VARIANT", "bf16")
+KV_DTYPE = os.environ.get("KV_DTYPE", "auto")
+
 vllm_image = (
     modal.Image.from_registry("nvidia/cuda:12.9.0-devel-ubuntu22.04", add_python="3.12")
     .entrypoint([])
@@ -47,6 +56,8 @@ vllm_image = (
             "HF_XET_HIGH_PERFORMANCE": "1",  # faster model transfers
             "VLLM_LOG_STATS_INTERVAL": "1",  # more frequent metrics logging
             "GPU": GPU,
+            "VARIANT": VARIANT,
+            "KV_DTYPE": KV_DTYPE,
         }
     )
 )
@@ -60,8 +71,13 @@ vllm_image = (
 # dozen short conversations at once.
 
 
-MODEL_NAME = "Qwen/Qwen3-8B"
-MODEL_REVISION = "b968826d9c46dd6066d109eabc6255188de91218"  # avoid nasty surprises when repos update!
+# Qwen's official checkpoints, pinned so a repo update can't change results under us.
+MODELS = {
+    "bf16": ("Qwen/Qwen3-8B", "b968826d9c46dd6066d109eabc6255188de91218"),
+    "fp8": ("Qwen/Qwen3-8B-FP8", "220b46e3b2180893580a4454f21f22d3ebb187d3"),
+    "awq": ("Qwen/Qwen3-8B-AWQ", "4da05a8edb55c6046cce958586c33b61da07bb79"),
+}
+MODEL_NAME, MODEL_REVISION = MODELS[VARIANT]
 MAX_MODEL_LEN = 8192  # our calls are ~1-2k tokens; a shorter max leaves more GPU memory for batching
 
 # Although vLLM will download weights from Hugging Face on-demand,
@@ -117,7 +133,12 @@ FAST_BOOT = False
 # once the model is spun up and the process is ready to listen on the configured port.
 
 
-app = modal.App(f"mini-bluejay-vllm-{GPU.lower()}")
+APP_NAME = f"mini-bluejay-vllm-{GPU.lower()}"
+if VARIANT != "bf16":
+    APP_NAME += f"-{VARIANT}"
+if KV_DTYPE != "auto":
+    APP_NAME += f"-kv{KV_DTYPE}"
+app = modal.App(APP_NAME)
 
 N_GPU = 1
 MINUTES = 60  # seconds
@@ -175,6 +196,10 @@ class Server:
         # Qwen3 can "think" before answering; this parser keeps that text out of the reply.
         # Clients turn thinking off per request with chat_template_kwargs={"enable_thinking": False}.
         cmd += ["--reasoning-parser", "qwen3"]
+
+        # quantized weights are detected from the checkpoint; the KV cache is opt-in
+        if KV_DTYPE != "auto":
+            cmd += ["--kv-cache-dtype", KV_DTYPE]
 
         print(*cmd)
 
